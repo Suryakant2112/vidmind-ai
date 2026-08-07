@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VidMind AI — AI Video Summarizer, Lecture Notes & Q&A</title>
+    <meta name="description" content="AI-powered learning assistant that generates summaries, detailed lecture notes, and answers questions from YouTube videos using RAG.">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="app">
+
+        <!-- Top Bar -->
+        <header class="topbar">
+            <div class="topbar__brand">
+                <div class="topbar__icon">▶</div>
+                VidMind AI
+            </div>
+            <button class="btn btn-ghost topbar__new" id="newVideoBtn" onclick="resetApp()">
+                ← New Video
+            </button>
+        </header>
+
+        <main class="main">
+
+            <!-- Error -->
+            <div class="error-bar" id="errorBar">
+                <span id="errorText"></span>
+                <button class="error-bar__close" onclick="hideError()">×</button>
+            </div>
+
+            <!-- ====== LANDING ====== -->
+            <section class="landing" id="landing">
+                <h1 class="landing__title">What do you want to learn?</h1>
+                <p class="landing__subtitle">
+                    Paste a YouTube lecture URL to get an AI summary, detailed study notes, or ask questions — all grounded in the video's transcript.
+                </p>
+
+                <div class="url-input-wrap">
+                    <div class="url-input-box">
+                        <input
+                            type="url"
+                            id="urlInput"
+                            placeholder="Paste a YouTube URL..."
+                            aria-label="YouTube video URL"
+                            autocomplete="off"
+                            onkeydown="if(event.key==='Enter')processVideo()"
+                        >
+                        <button class="btn btn-primary" id="processBtn" onclick="processVideo()">
+                            Process →
+                        </button>
+                    </div>
+                </div>
+
+                <div class="landing__features">
+                    <div class="feature-chip">📋 AI Summary</div>
+                    <div class="feature-chip">📝 Lecture Notes</div>
+                    <div class="feature-chip">💬 RAG Q&A</div>
+                    <div class="feature-chip">⏱ Timestamps</div>
+                </div>
+            </section>
+
+            <!-- ====== PROCESSING (simple loading bar) ====== -->
+            <section class="processing-screen" id="processingScreen">
+                <div class="processing-screen__inner">
+                    <div class="processing-screen__icon">▶</div>
+                    <h2 class="processing-screen__title">Processing Video</h2>
+                    <p class="processing-screen__hint" id="processingHint">Extracting transcript & building knowledge base...</p>
+                    <div class="progress-bar">
+                        <div class="progress-bar__fill" id="progressFill"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ====== RESULTS ====== -->
+            <section class="results" id="results">
+
+                <!-- Embedded YouTube Player -->
+                <div class="video-embed" id="videoEmbed">
+                    <div id="ytPlayer"></div>
+                </div>
+
+                <!-- Mode Switcher -->
+                <div class="mode-bar" id="modeBar">
+                    <button class="mode-btn active" data-mode="summary" onclick="switchMode('summary')">📋 Summary</button>
+                    <button class="mode-btn" data-mode="notes" onclick="switchMode('notes')">📝 Lecture Notes</button>
+                    <button class="mode-btn" data-mode="ask" onclick="switchMode('ask')">💬 Ask AI</button>
+                </div>
+
+                <!-- Panel: Summary -->
+                <div class="panel show" id="panelSummary">
+                    <div class="content-area">
+                        <div class="content-toolbar">
+                            <button class="btn btn-outline" onclick="copySummary()">📋 Copy</button>
+                        </div>
+                        <div id="summaryBody" class="md">
+                            <div class="loader" id="summaryLoader">
+                                <div class="loader__dots"><span></span><span></span><span></span></div>
+                                Generating summary...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Panel: Notes -->
+                <div class="panel" id="panelNotes">
+                    <div class="content-area">
+                        <div class="content-toolbar">
+                            <button class="btn btn-outline" onclick="copyNotes()">📋 Copy</button>
+                            <button class="btn btn-outline" onclick="downloadNotes()">⬇ Download .md</button>
+                        </div>
+                        <div id="notesBody" class="md">
+                            <div class="loader" id="notesLoader">
+                                <div class="loader__dots"><span></span><span></span><span></span></div>
+                                Generating lecture notes...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Panel: Ask AI -->
+                <div class="panel" id="panelAsk">
+                    <div class="chat">
+                        <div class="chat__messages" id="chatMessages">
+                            <div class="chat__welcome" id="chatWelcome">
+                                <div class="chat__welcome-icon">💬</div>
+                                <div class="chat__welcome-title">Ask anything about this video</div>
+                                <div class="chat__welcome-hint">Answers are grounded in the video's transcript</div>
+                            </div>
+                        </div>
+                        <div class="chat__input-area">
+                            <div class="chat__input-box">
+                                <input
+                                    type="text"
+                                    id="chatInput"
+                                    placeholder="Ask a question..."
+                                    aria-label="Ask a question"
+                                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askQuestion()}"
+                                >
+                                <button class="chat__send" id="sendBtn" onclick="askQuestion()">↑</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <!-- YouTube IFrame API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>
