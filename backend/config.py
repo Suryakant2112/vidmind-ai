@@ -110,6 +110,13 @@ class Settings(BaseSettings):
         default="",
         description="Path to cookies.txt file to bypass YouTube IP blocks on cloud providers",
     )
+<<<<<<< HEAD
+=======
+    YOUTUBE_COOKIE_STRING: str = Field(
+        default="",
+        description="Raw cookie string to bypass IP blocks (easier for Vercel/Render env vars)",
+    )
+>>>>>>> 9565df2 (Add yt-dlp transcript fallback for cloud deployment)
 
     model_config = {
         "env_file": ".env",

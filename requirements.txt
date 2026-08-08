@@ -18,8 +18,9 @@ sentence-transformers>=3.0.0
 # --- Vector Database ---
 chromadb>=1.0.0
 
-# --- YouTube Transcript ---
-youtube-transcript-api>=0.6.0
+# --- YouTube Transcripts ---
+youtube-transcript-api==0.6.2
+yt-dlp>=2024.7.25
 
 # --- Configuration ---
 pydantic>=2.0.0
