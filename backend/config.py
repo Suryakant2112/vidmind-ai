@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     )
     LLM_TEMPERATURE: float = Field(default=0.1, description="LLM temperature")
     LLM_MAX_TOKENS: int = Field(default=4096, description="Max tokens per LLM response")
+    
+    # --- External APIs ---
+    SUPADATA_API_KEY: str = Field(
+        default="", 
+        description="Supadata API key for fetching YouTube transcripts (bypasses IP blocks)"
+    )
 
     # --- Embedding Model ---
     EMBEDDING_MODEL: str = Field(
