@@ -35,43 +35,7 @@ def fetch_transcript(video_id: str) -> tuple[Optional[list[dict]], str]:
         Each segment: {"text": str, "start": float, "duration": float}
     """
     try:
-        # --- 1. Primary Method: External API (Supadata) ---
-        # Bypasses IP blocks on cloud providers like Render
-        from backend.config import get_settings
-        settings = get_settings()
-
-        if settings.SUPADATA_API_KEY:
-            logger.info(f"Attempting to fetch transcript for {video_id} using Supadata API...")
-            try:
-                import httpx
-                url = f"https://www.youtube.com/watch?v={video_id}"
-                response = httpx.get(
-                    f"https://api.supadata.ai/v1/youtube/transcript?url={url}",
-                    headers={"x-api-key": settings.SUPADATA_API_KEY},
-                    timeout=15.0
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    content = data.get("content", [])
-                    
-                    if content:
-                        result = []
-                        for seg in content:
-                            result.append({
-                                "text": seg.get("text", ""),
-                                "start": float(seg.get("offset", 0)) / 1000.0,
-                                "duration": float(seg.get("duration", 0)) / 1000.0,
-                            })
-                        
-                        logger.info(f"Successfully extracted {len(result)} segments using Supadata API")
-                        return result, f"Transcript fetched via API: {len(result)} segments"
-                
-                logger.warning(f"Supadata API failed. Status: {response.status_code}. Falling back to local extractors...")
-            except Exception as api_e:
-                logger.warning(f"Supadata API request error: {api_e}. Falling back to local extractors...")
-
-        # --- 2. Fallback Method 1: youtube-transcript-api ---
+        # Support both newer instance-based YouTubeTranscriptApi and legacy classmethods
         try:
             ytt = YouTubeTranscriptApi()
             transcript_list = ytt.list(video_id)
