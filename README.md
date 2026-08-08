@@ -392,6 +392,21 @@ youtube-rag/
 
 ---
 
-## 📜 License
+##  Screenshots 
+Upload page - <img width="1280" height="670" alt="image" src="https://github.com/user-attachments/assets/44f188da-cde6-4c00-a788-3b1218cd2810" />
+-
 
-MIT License — see [LICENSE](LICENSE) for details.
+Dashboard - <img width="1280" height="491" alt="image" src="https://github.com/user-attachments/assets/b13b4220-0d2b-48c0-b0c6-e3436a6cec6c" />
+-
+
+Overview tab - <img width="1280" height="635" alt="image" src="https://github.com/user-attachments/assets/6126c543-0ef3-4fad-9713-072a6354ad0f" />
+-
+
+Notes tab - <img width="1280" height="661" alt="image" src="https://github.com/user-attachments/assets/8b9076db-5c47-44f2-8f30-89cf72537744" />
+-
+
+Important timestamps (in both overview and notes tab) - <img width="1280" height="652" alt="image" src="https://github.com/user-attachments/assets/2852d9c0-0bfd-4547-85ab-eb0448e48cd4" />
+-
+
+Ai Agent - <img width="1280" height="664" alt="image" src="https://github.com/user-attachments/assets/74b0a1d9-270c-4bba-a127-9defca616ccf" />
+-
