@@ -35,37 +35,9 @@ def fetch_transcript(video_id: str) -> tuple[Optional[list[dict]], str]:
         Each segment: {"text": str, "start": float, "duration": float}
     """
     try:
-        # Load cookie path from settings (needed for cloud deployment)
-        from backend.config import get_settings
-        settings = get_settings()
-        cookie_path = settings.COOKIE_PATH if settings.COOKIE_PATH else None
-
-        # Validate cookie file exists if specified
-        import os
-        
-        # If a raw cookie string is provided via env vars (great for Vercel/Render), 
-        # write it to a temporary file in /tmp/ so the library can use it.
-        if settings.YOUTUBE_COOKIE_STRING:
-            import tempfile
-            temp_cookie_path = os.path.join(tempfile.gettempdir(), "youtube_cookies.txt")
-            with open(temp_cookie_path, "w", encoding="utf-8") as f:
-                # Basic Netscape format header if missing, though the string should be the raw contents
-                if "# Netscape HTTP Cookie File" not in settings.YOUTUBE_COOKIE_STRING:
-                    f.write("# Netscape HTTP Cookie File\n")
-                f.write(settings.YOUTUBE_COOKIE_STRING)
-            cookie_path = temp_cookie_path
-            logger.info("Created temporary cookie file from YOUTUBE_COOKIE_STRING")
-        elif cookie_path and not os.path.isfile(cookie_path):
-            logger.warning(f"Cookie file not found at '{cookie_path}', proceeding without cookies")
-            cookie_path = None
-
         # Support both newer instance-based YouTubeTranscriptApi and legacy classmethods
         try:
-            if cookie_path:
-                ytt = YouTubeTranscriptApi(cookie_path=cookie_path)
-                logger.info(f"Using cookies from {cookie_path}")
-            else:
-                ytt = YouTubeTranscriptApi()
+            ytt = YouTubeTranscriptApi()
             transcript_list = ytt.list(video_id)
         except (AttributeError, TypeError):
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
