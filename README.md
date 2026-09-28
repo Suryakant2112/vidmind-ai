@@ -68,7 +68,7 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
           └──────────┼──────────┘
                      ↓
           ┌─────────────────────┐
-          │   Groq LLM API       │  ← llama-3.3-70b-versatile (free tier)
+          │   Groq LLM API       │  ← qwen/qwen3.8-27b (free tier)
           └──────────┬──────────┘
                      │
                      ↓
@@ -91,7 +91,7 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
 
 | Component | Technology | Cost |
 |---|---|---|
-| LLM inference | Groq API (`llama-3.3-70b-versatile`) | Free tier (rate-limited) |
+| LLM inference | Groq API (`qwen/qwen3.8-27b`) | Free tier (rate-limited) |
 
 ---
 
@@ -203,7 +203,7 @@ cp .env.example .env
 ```env
 # Get a free key from https://console.groq.com
 LLM_API_KEY=your_groq_api_key_here
-LLM_MODEL=llama-3.3-70b-versatile
+LLM_MODEL=qwen/qwen3.8-27b
 
 # Local embedding model (downloaded automatically, ~22MB)
 EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2

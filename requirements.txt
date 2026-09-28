@@ -19,7 +19,7 @@ sentence-transformers>=3.0.0
 chromadb>=1.0.0
 
 # --- YouTube Transcripts ---
-youtube-transcript-api==0.6.2
+youtube-transcript-api>=1.0.0
 yt-dlp>=2024.7.25
 
 # --- Configuration ---
