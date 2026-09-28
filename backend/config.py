@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # --- Embedding Model ---
     EMBEDDING_MODEL: str = Field(
         default="sentence-transformers/all-MiniLM-L6-v2",
-        description="Sentence Transformer model (runs locally on CPU)",
+        description="Sentence Transformer model (runs locally on GPU or CPU)",
     )
 
     # --- RAG Settings ---

@@ -1,11 +1,12 @@
 """
 Embedding service using Sentence Transformers.
-Runs locally on CPU — no external API needed.
+Runs locally on GPU or CPU — no external API needed.
 """
 
 import logging
 from typing import Optional
 from sentence_transformers import SentenceTransformer
+import torch
 
 from backend.config import get_settings
 
@@ -26,7 +27,8 @@ def get_embedding_model() -> SentenceTransformer:
         settings = get_settings()
         model_name = settings.EMBEDDING_MODEL
         logger.info(f"Loading embedding model: {model_name}")
-        _model = SentenceTransformer(model_name, device="cpu")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        _model = SentenceTransformer(model_name, device=device)
         logger.info(f"Embedding model loaded: {model_name}")
     return _model
 

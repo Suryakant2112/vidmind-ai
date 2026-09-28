@@ -7,6 +7,7 @@ import logging
 from typing import Optional
 import chromadb
 from chromadb.utils import embedding_functions
+import torch
 
 from backend.config import get_settings
 
@@ -30,9 +31,10 @@ def get_chroma_client() -> chromadb.PersistentClient:
 def get_embedding_function():
     """Get the ChromaDB-compatible Sentence Transformer embedding function."""
     settings = get_settings()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     return embedding_functions.SentenceTransformerEmbeddingFunction(
         model_name=settings.EMBEDDING_MODEL,
-        device="cpu",
+        device=device,
     )
 
 

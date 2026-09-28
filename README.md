@@ -17,7 +17,7 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
 - **💬 RAG-Based Q&A** — Ask questions grounded in the video's transcript
 - **⏱ Timestamp Sources** — Clickable timestamps linking back to the exact moment in the video
 - **🔄 Conversational Follow-ups** — Multi-turn Q&A with context awareness
-- **🧠 Local Embeddings** — Sentence Transformers running on CPU (no paid API)
+- **🧠 Local Embeddings** — Sentence Transformers running on GPU/CPU (no paid API)
 - **💾 Persistent Vector Storage** — ChromaDB with caching to avoid reprocessing
 - **📊 Hierarchical Processing** — Long videos are processed in stages to handle context limits
 
@@ -47,7 +47,7 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
                      │
                      ↓
           ┌─────────────────────┐
-          │ Sentence Transformer │  ← all-MiniLM-L6-v2 (local, CPU)
+          │ Sentence Transformer │  ← all-MiniLM-L6-v2 (local, GPU/CPU)
           │     Embeddings       │
           └──────────┬──────────┘
                      │
@@ -82,7 +82,7 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
 |---|---|---|
 | Transcript extraction | `youtube-transcript-api` | Free |
 | Text cleaning & chunking | LangChain text splitters | Free |
-| Embeddings | Sentence Transformers (`all-MiniLM-L6-v2`) | Free (CPU) |
+| Embeddings | Sentence Transformers (`all-MiniLM-L6-v2`) | Free (GPU/CPU) |
 | Vector database | ChromaDB (persistent local) | Free |
 | RAG retrieval | ChromaDB similarity search | Free |
 | Web server | FastAPI + Uvicorn | Free |
@@ -287,7 +287,7 @@ docker run -p 8000:8000 --env-file .env youtube-rag
 - Limited RAM (512MB–1GB) — the embedding model needs ~200MB
 - Cold starts after inactivity
 - No persistent disk — ChromaDB data resets on restart
-- CPU-only (which is fine for this project)
+- CPU or GPU-only (which is fine for this project)
 
 For persistent data on free tiers, consider using ChromaDB in ephemeral mode and re-processing videos on demand.
 
