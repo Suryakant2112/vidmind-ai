@@ -1,5 +1,5 @@
 /**
- * VidMind AI — Frontend Logic
+ * VidMind — Frontend Logic
  * Handles processing, mode switching, content display, chat,
  * embedded YouTube player, and in-page timestamp seeking.
  */
@@ -75,14 +75,14 @@ function renderMd(md) {
     if (!md) return '';
     let html = typeof marked !== 'undefined' ? marked.parse(md) : md;
 
-    // Convert ⏱ MM:SS or HH:MM:SS into clickable in-page timestamp links
+    // Convert ⏱ MM:SS or HH:MM:SS (as written by the LLM) into clickable timestamps
     if (state.videoId) {
-        html = html.replace(/⏱\s*(\d{1,2}):(\d{2})(?::(\d{2}))?/g, (_, p1, p2, p3) => {
+        html = html.replace(/⏱️?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?/g, (_, p1, p2, p3) => {
             const secs = p3
                 ? parseInt(p1) * 3600 + parseInt(p2) * 60 + parseInt(p3)
                 : parseInt(p1) * 60 + parseInt(p2);
             const display = p3 ? `${p1}:${p2}:${p3}` : `${p1}:${p2}`;
-            return `<span class="ts-link" onclick="seekVideo(${secs})">⏱ ${display}</span>`;
+            return tsButton(secs, display);
         });
     }
 
@@ -90,11 +90,15 @@ function renderMd(md) {
     if (state.videoId) {
         html = html.replace(
             /<a\s+href="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=[^"]*?&t=(\d+)s?"[^>]*>(.*?)<\/a>/g,
-            (_, secs, text) => `<span class="ts-link" onclick="seekVideo(${secs})">${text}</span>`
+            (_, secs, text) => tsButton(parseInt(secs), text)
         );
     }
 
     return html;
+}
+
+function tsButton(secs, label) {
+    return `<button type="button" class="ts" onclick="seekVideo(${secs})" title="Jump the video to ${label}">${label}</button>`;
 }
 
 // ─── API Helpers ─────────────────────────────────────────────────────────────
@@ -179,14 +183,14 @@ async function processVideo() {
 
         await sleep(500);
         showResults(result.video_info);
-        toast('Video processed — choose a mode above.');
+        toast('Ready. The summary is being written now.');
     } catch (err) {
         clearInterval(crawl);
         bar.classList.remove('progress-bar--shimmer');
         fill.style.width = '0%';
         if (err.code === 'transcript_unavailable') {
             showPasteBox();
-            showError(`${err.message} YouTube may be blocking this server — paste the transcript below and press Process again.`);
+            showError(`${err.message} YouTube may be blocking this server. Paste the transcript below and press Make notes again.`);
         } else {
             showError(err.message);
         }
@@ -205,13 +209,13 @@ function togglePasteBox() {
 
 function showPasteBox() {
     document.getElementById('pasteBox').classList.add('show');
-    document.getElementById('pasteToggle').textContent = '− Hide transcript box';
+    document.getElementById('pasteToggle').textContent = 'Hide the transcript box';
     document.getElementById('transcriptInput').focus();
 }
 
 function hidePasteBox() {
     document.getElementById('pasteBox').classList.remove('show');
-    document.getElementById('pasteToggle').textContent = '+ Or paste the transcript yourself';
+    document.getElementById('pasteToggle').textContent = 'No captions coming through? Paste the transcript instead';
 }
 
 function setBtnLoading(on) {
@@ -220,7 +224,7 @@ function setBtnLoading(on) {
     btn.disabled = on;
     inp.disabled = on;
     document.getElementById('transcriptInput').disabled = on;
-    btn.textContent = on ? 'Processing...' : 'Process →';
+    btn.textContent = on ? 'Working…' : 'Make notes';
 }
 
 // ─── Results Display ─────────────────────────────────────────────────────────
@@ -232,6 +236,12 @@ function showResults(info) {
 
     // Create embedded YouTube player
     createPlayer(info.video_id);
+
+    const meta = [];
+    if (info.duration_seconds) meta.push(`${fmtDur(info.duration_seconds)} long`);
+    if (info.transcript_segments) meta.push(`${info.transcript_segments} caption lines`);
+    if (info.chunk_count) meta.push(`${info.chunk_count} passages indexed`);
+    document.getElementById('videoMeta').innerHTML = meta.map(m => `<span>${m}</span>`).join('');
 
     switchMode('summary');
 }
@@ -254,21 +264,20 @@ function switchMode(mode) {
 async function loadSummary() {
     if (!state.videoId) return;
     const body = document.getElementById('summaryBody');
-    body.innerHTML = loaderHtml('Generating summary...');
+    body.innerHTML = loaderHtml('Writing the summary');
 
     try {
         const r = await apiGet(`/video/${state.videoId}/summary`);
         state.summaryMd = r.summary;
         state.summaryLoaded = true;
         body.innerHTML = renderMd(r.summary);
-        if (r.cached) toast('Loaded cached summary.');
     } catch (e) {
-        body.innerHTML = `<p style="color:var(--error)">Failed: ${e.message}</p>`;
+        body.innerHTML = `<p class="error-text">Couldn't write the summary: ${esc(e.message)}</p>`;
     }
 }
 
 function copySummary() {
-    if (state.summaryMd) { copy(state.summaryMd); toast('Summary copied!'); }
+    if (state.summaryMd) { copy(state.summaryMd); toast('Summary copied'); }
 }
 
 // ─── Notes ───────────────────────────────────────────────────────────────────
@@ -276,21 +285,20 @@ function copySummary() {
 async function loadNotes() {
     if (!state.videoId) return;
     const body = document.getElementById('notesBody');
-    body.innerHTML = loaderHtml('Generating lecture notes...');
+    body.innerHTML = loaderHtml('Writing your notes. Long lectures can take a minute');
 
     try {
         const r = await apiGet(`/video/${state.videoId}/notes`);
         state.notesMd = r.notes;
         state.notesLoaded = true;
         body.innerHTML = renderMd(r.notes);
-        if (r.cached) toast('Loaded cached notes.');
     } catch (e) {
-        body.innerHTML = `<p style="color:var(--error)">Failed: ${e.message}</p>`;
+        body.innerHTML = `<p class="error-text">Couldn't write the notes: ${esc(e.message)}</p>`;
     }
 }
 
 function copyNotes() {
-    if (state.notesMd) { copy(state.notesMd); toast('Notes copied!'); }
+    if (state.notesMd) { copy(state.notesMd); toast('Notes copied'); }
 }
 
 function downloadNotes() {
@@ -303,7 +311,7 @@ function downloadNotes() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
-    toast('Notes downloaded!');
+    toast('Notes downloaded');
 }
 
 // ─── Chat ────────────────────────────────────────────────────────────────────
@@ -314,10 +322,9 @@ async function askQuestion() {
     const q = inp.value.trim();
     if (!q) return;
 
-    const welcome = document.getElementById('chatWelcome');
-    if (welcome) welcome.style.display = 'none';
+    document.getElementById('chatWelcome')?.remove();
 
-    appendMsg('user', q);
+    appendQuestion(q);
     inp.value = '';
     const typingId = appendTyping();
 
@@ -330,12 +337,12 @@ async function askQuestion() {
             conversation_history: state.history,
         });
         removeEl(typingId);
-        appendMsg('ai', r.answer, r.sources);
+        appendAnswer(r.answer, r.sources);
         state.history.push({ role: 'user', content: q }, { role: 'assistant', content: r.answer });
         if (state.history.length > 12) state.history = state.history.slice(-12);
     } catch (e) {
         removeEl(typingId);
-        appendMsg('ai', `Sorry, an error occurred: ${e.message}`);
+        appendAnswer(null, [], `Couldn't answer that: ${e.message}`);
     } finally {
         state.asking = false;
         document.getElementById('sendBtn').disabled = false;
@@ -343,55 +350,70 @@ async function askQuestion() {
     }
 }
 
-function appendMsg(role, content, sources = []) {
+function appendQuestion(text) {
     const box = document.getElementById('chatMessages');
     const div = document.createElement('div');
-    div.className = `msg msg--${role}`;
+    div.className = 'qa qa--q';
+    div.innerHTML = `<div class="qa__line"><span class="qa__mark">Q.</span><div class="qa__text">${esc(text)}</div></div>`;
+    box.appendChild(div);
+    div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
 
-    const avatar = role === 'user' ? '👤' : '▶';
-    const label = role === 'user' ? 'You' : 'VidMind AI';
-    const rendered = role === 'ai' ? `<div class="md">${renderMd(content)}</div>` : esc(content);
+// The answer is placed inside the latest question block so each Q/A pair stays together
+function lastQuestionBlock() {
+    const box = document.getElementById('chatMessages');
+    return box.lastElementChild?.classList.contains('qa--q') ? box.lastElementChild : box;
+}
+
+function appendAnswer(markdown, sources = [], errorText = '') {
+    const body = errorText
+        ? `<div class="qa__error">${esc(errorText)}</div>`
+        : `<div class="md">${renderMd(markdown)}</div>`;
 
     let srcHtml = '';
     if (sources?.length) {
-        const tags = sources.map(s => {
-            // Extract seconds from the youtube_url (t=XXXs)
+        const refs = sources.map(s => {
             const match = s.youtube_url?.match(/[&?]t=(\d+)/);
-            const secs = match ? parseInt(match[1]) : 0;
-            return `<span class="source-tag" onclick="seekVideo(${secs})">⏱ ${s.timestamp_display}</span>`;
-        }).join('');
-        srcHtml = `<div class="sources"><div class="sources__title">Sources</div><div class="sources__list">${tags}</div></div>`;
+            return tsButton(match ? parseInt(match[1]) : 0, s.timestamp_display);
+        }).join(' · ');
+        srcHtml = `<div class="sources"><span class="sources__title">From the video at</span>${refs}</div>`;
     }
 
-    div.innerHTML = `<div class="msg__inner">
-        <div class="msg__avatar">${avatar}</div>
-        <div class="msg__body">
-            <div class="msg__role">${label}</div>
-            <div class="msg__text">${rendered}</div>
-            ${srcHtml}
-        </div>
-    </div>`;
-
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
+    const div = document.createElement('div');
+    div.className = 'qa--a';
+    div.innerHTML = `<div class="qa__line"><span class="qa__mark">A.</span><div class="qa__text">${body}</div></div>${srcHtml}`;
+    lastQuestionBlock().appendChild(div);
+    div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function appendTyping() {
-    const box = document.getElementById('chatMessages');
     const id = 'typing-' + Date.now();
     const div = document.createElement('div');
     div.id = id;
-    div.className = 'msg msg--ai';
-    div.innerHTML = `<div class="msg__inner">
-        <div class="msg__avatar">▶</div>
-        <div class="msg__body">
-            <div class="msg__role">VidMind AI</div>
-            <div class="msg__text"><div class="loader__dots"><span></span><span></span><span></span></div></div>
+    div.className = 'qa--a';
+    div.innerHTML = `<div class="qa__line"><span class="qa__mark">A.</span><div class="loader" style="padding:0">Looking through the transcript<span class="caret"></span></div></div>`;
+    lastQuestionBlock().appendChild(div);
+    return id;
+}
+
+function chatWelcomeHtml() {
+    const examples = [
+        'What are the main ideas, in order?',
+        'Explain the hardest part more simply.',
+        'What examples were given?',
+    ];
+    return `<div class="chat__welcome" id="chatWelcome">
+        <div class="chat__welcome-title">Ask about anything that was said.</div>
+        Answers are drawn only from the transcript, with timestamps so you can check them yourself.
+        <div class="chat__examples">
+            ${examples.map(q => `<button class="text-link" onclick="askExample(this.textContent)">${q}</button>`).join('')}
         </div>
     </div>`;
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-    return id;
+}
+
+function askExample(text) {
+    document.getElementById('chatInput').value = text;
+    askQuestion();
 }
 
 // ─── Reset ───────────────────────────────────────────────────────────────────
@@ -417,16 +439,12 @@ function resetApp() {
     document.getElementById('transcriptInput').disabled = false;
     hidePasteBox();
     document.getElementById('processBtn').disabled = false;
-    document.getElementById('processBtn').textContent = 'Process →';
+    document.getElementById('processBtn').textContent = 'Make notes';
 
-    document.getElementById('summaryBody').innerHTML = loaderHtml('Generating summary...');
-    document.getElementById('notesBody').innerHTML = loaderHtml('Generating lecture notes...');
-    document.getElementById('chatMessages').innerHTML = `
-        <div class="chat__welcome" id="chatWelcome">
-            <div class="chat__welcome-icon">💬</div>
-            <div class="chat__welcome-title">Ask anything about this video</div>
-            <div class="chat__welcome-hint">Answers are grounded in the video's transcript</div>
-        </div>`;
+    document.getElementById('summaryBody').innerHTML = '';
+    document.getElementById('notesBody').innerHTML = '';
+    document.getElementById('videoMeta').innerHTML = '';
+    document.getElementById('chatMessages').innerHTML = chatWelcomeHtml();
     switchMode('summary');
     hideError();
     document.getElementById('urlInput').focus();
@@ -469,12 +487,13 @@ function esc(t) { const d = document.createElement('div'); d.textContent = t; re
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function removeEl(id) { document.getElementById(id)?.remove(); }
 function loaderHtml(msg) {
-    return `<div class="loader"><div class="loader__dots"><span></span><span></span><span></span></div>${msg}</div>`;
+    return `<div class="loader">${msg}<span class="caret"></span></div>`;
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('newVideoBtn').style.display = 'none';
+    document.getElementById('chatMessages').innerHTML = chatWelcomeHtml();
     document.getElementById('urlInput').focus();
 });

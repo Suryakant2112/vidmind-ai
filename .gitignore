@@ -40,3 +40,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local preview database
+.preview_qdrant/
