@@ -1,6 +1,6 @@
-# VidMind AI — AI Video Summarizer, Lecture Notes & Q&A
+# VidMind — Summaries, Study Notes & Q&A from YouTube Lectures
 
-An AI-powered learning assistant that transforms YouTube lectures into structured summaries, detailed study notes, and interactive Q&A — all grounded in the video's transcript using **Retrieval-Augmented Generation (RAG)**.
+VidMind turns a YouTube lecture into a structured summary, detailed study notes and a Q&A space, all grounded in the video's transcript using **Retrieval-Augmented Generation (RAG)**. Every point links back to the moment in the video it came from.
 
 ![Python](https://img.shields.io/badge/Python-3.11+-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green)
@@ -9,86 +9,84 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
 
 ---
 
-## 🎯 Features
+## Features
 
-- **🎬 YouTube Transcript Extraction** — Automatically fetches transcripts with timestamp preservation
-- **📋 AI Video Summary** — Structured overview with main topics, key points, and takeaways
-- **📝 AI Lecture Notes** — Detailed, study-optimized notes with definitions, formulas, and examples
-- **💬 RAG-Based Q&A** — Ask questions grounded in the video's transcript
-- **⏱ Timestamp Sources** — Clickable timestamps linking back to the exact moment in the video
-- **🔄 Conversational Follow-ups** — Multi-turn Q&A with context awareness
-- **🧠 Local Embeddings** — FastEmbed (ONNX) on CPU, light enough for free hosting
-- **💾 Persistent Vector Storage** — Qdrant (Cloud or local), also caches summaries & notes
-- **🔁 LLM Fallback Chain** — Groq → second Groq model → Gemini, to stretch free limits
-- **📋 Paste Transcript** — Works even when YouTube blocks the server from fetching captions
-- **📊 Hierarchical Processing** — Long videos are processed in stages to handle context limits
+- **Transcript extraction** — fetches YouTube captions automatically, keeping timestamps
+- **Paste-a-transcript fallback** — works even when YouTube blocks the server from fetching captions (accepts YouTube's *Show transcript* text, SRT/VTT, or plain text)
+- **Summary** — overview, main topics, key points and takeaways
+- **Study notes** — detailed notes with definitions, formulas and examples, built hierarchically for long lectures
+- **Grounded Q&A** — answers come only from the transcript, with multi-turn follow-ups
+- **Clickable timestamps** — jump the embedded player to the exact moment
+- **LLM fallback chain** — Groq → a second Groq model → Gemini, to stretch free-tier limits
+- **Light local embeddings** — FastEmbed (ONNX) on CPU, small enough for free hosting
+- **Persistent storage** — Qdrant (Cloud or local) stores chunks plus cached summaries and notes
+- **Clean reading UI** — notebook-style layout with light and dark mode, video beside the notes on desktop, works on phones
 
 ---
 
-## 🏗 Architecture
+## Architecture
 
 ```text
                     USER
                      │
                      ↓
-              YouTube Video URL
+       YouTube URL (+ optional pasted transcript)
                      │
                      ↓
-          ┌─────────────────────┐
-          │ Transcript Extractor │  ← youtube-transcript-api (no API key)
-          └──────────┬──────────┘
+          ┌──────────────────────┐
+          │ Transcript Extractor │  ← youtube-transcript-api / yt-dlp, or pasted text
+          └──────────┬───────────┘
                      │
                      ↓
-          Clean + Timestamped
-             Transcript
+           Clean + Timestamped
+               Transcript
                      │
                      ↓
-          ┌─────────────────────┐
+          ┌──────────────────────┐
           │  Semantic Chunking   │  ← LangChain RecursiveCharacterTextSplitter
-          └──────────┬──────────┘
+          └──────────┬───────────┘
                      │
                      ↓
-          ┌─────────────────────┐
+          ┌──────────────────────┐
           │ FastEmbed Embeddings │  ← all-MiniLM-L6-v2 (ONNX, local CPU)
-          │     Embeddings       │
-          └──────────┬──────────┘
+          └──────────┬───────────┘
                      │
                      ↓
-          ┌─────────────────────┐
-          │       Qdrant         │  ← Qdrant Cloud (free) or local
-          └──────────┬──────────┘
+          ┌──────────────────────┐
+          │        Qdrant        │  ← Qdrant Cloud (free) or local
+          └──────────┬───────────┘
                      │
                      ↓
-          ┌─────────────────────┐
-          │   LangChain RAG      │  ← Retrieval + Prompt Engineering
-          └──────────┬──────────┘
+          ┌──────────────────────┐
+          │    LangChain RAG     │  ← Retrieval + prompt engineering
+          └──────────┬───────────┘
                      │
           ┌──────────┼──────────┐
           ↓          ↓          ↓
-       SUMMARY      NOTES       Q&A
+       SUMMARY     NOTES       Q&A
           │          │          │
           └──────────┼──────────┘
                      ↓
-          ┌─────────────────────┐
+          ┌──────────────────────┐
           │ Groq → Gemini chain  │  ← free tiers, automatic fallback
-          └──────────┬──────────┘
+          └──────────┬───────────┘
                      │
                      ↓
-          Timestamped, Grounded
-               Responses
+           Timestamped, Grounded
+                Responses
 ```
 
 ### What Runs Locally (Free)
 
 | Component | Technology | Cost |
 |---|---|---|
-| Transcript extraction | `youtube-transcript-api` | Free |
+| Transcript extraction | `youtube-transcript-api`, `yt-dlp` | Free |
 | Text cleaning & chunking | LangChain text splitters | Free |
 | Embeddings | FastEmbed (`all-MiniLM-L6-v2`, ONNX) | Free (CPU) |
 | RAG retrieval | Qdrant similarity search | Free |
 | Web server | FastAPI + Uvicorn | Free |
 
-### What Uses External API (Free Tier)
+### What Uses External Services (Free Tier)
 
 | Component | Technology | Cost |
 |---|---|---|
@@ -97,22 +95,22 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
 
 ---
 
-## 🛠 Tech Stack
+## Tech Stack
 
 | Layer | Technology | Role |
 |---|---|---|
-| **Backend** | FastAPI | REST API, async request handling |
+| **Backend** | FastAPI | REST API |
 | **LLM** | Groq + Gemini (via `langchain-openai`) | Text generation with provider fallback |
 | **Embeddings** | FastEmbed (ONNX Runtime) | Local vector embeddings (CPU) |
 | **Vector DB** | Qdrant | Semantic search + cached summaries/notes |
-| **RAG** | LangChain | Prompt templates, chain composition |
-| **Transcript** | `youtube-transcript-api` | YouTube transcript extraction |
-| **Frontend** | HTML + CSS + JavaScript | Single-page application |
+| **RAG** | LangChain | Prompt templates, text splitting |
+| **Transcript** | `youtube-transcript-api`, `yt-dlp` | YouTube transcript extraction |
+| **Frontend** | HTML + CSS + JavaScript | Single-page app with embedded YouTube player |
 | **Config** | Pydantic Settings | Type-safe environment variables |
 
 ---
 
-## 🔍 How RAG Works in This Project
+## How RAG Works in This Project
 
 ### Question Answering
 
@@ -126,7 +124,7 @@ User Question: "What is a vector database?"
    Qdrant Similarity Search    ← Find top-K most relevant transcript chunks
          │
          ↓
-   Context Construction         ← Combine retrieved chunks with timestamps
+   Context Construction        ← Combine retrieved chunks with timestamps
          │
          ↓
    LLM Prompt                  ← System prompt enforces grounding policy
@@ -138,11 +136,11 @@ User Question: "What is a vector database?"
    Grounded Answer + Sources   ← Answer with clickable timestamp references
 ```
 
-The LLM **never sees the full transcript**. It only receives the most relevant chunks retrieved via semantic search. This is what makes it RAG, not simple transcript → LLM.
+The LLM **never sees the full transcript** when answering questions. It only receives the most relevant chunks retrieved via semantic search. This is what makes it RAG rather than simply passing the transcript to an LLM.
 
 ### Grounding Policy
 
-The system prompt strictly instructs the LLM to:
+The system prompt instructs the LLM to:
 1. Use **only** the provided transcript context
 2. **Never** fabricate information
 3. Say "I couldn't find that information" when the context is insufficient
@@ -150,7 +148,7 @@ The system prompt strictly instructs the LLM to:
 
 ---
 
-## 📝 Lecture Notes Generation
+## Lecture Notes Generation
 
 For long videos, notes are generated hierarchically to avoid context-window overflow:
 
@@ -163,14 +161,14 @@ Chunk-Level Notes              ← Each chunk → detailed study notes
       ↓
 Section-Level Notes            ← Merge related chunk notes
       ↓
-Final Structured Lecture Notes ← Comprehensive, organized study material
+Final Structured Lecture Notes ← Comprehensive, organised study material
 ```
 
-This pipeline ensures that even 2-hour lectures produce high-quality notes without losing detail.
+This keeps notes for 2-hour lectures detailed without exceeding the model's context limit. Summaries and notes are cached in Qdrant, so each is generated only once per video.
 
 ---
 
-## 🚀 Installation
+## Installation
 
 ### Prerequisites
 
@@ -182,8 +180,8 @@ This pipeline ensures that even 2-hour lectures produce high-quality notes witho
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/YOUR_USERNAME/youtube-rag.git
-cd youtube-rag
+git clone https://github.com/Suryakant2112/vidmind-ai.git
+cd vidmind-ai
 
 # 2. Create a virtual environment
 python -m venv venv
@@ -229,7 +227,7 @@ MAX_VIDEO_DURATION_MINUTES=120
 
 ---
 
-## ▶️ Running Locally
+## Running Locally
 
 ```bash
 # Start the server
@@ -239,13 +237,18 @@ uvicorn backend.main:app --reload
 # http://localhost:8000
 ```
 
-**First run**: The FastEmbed model (~90MB) is downloaded automatically into `.model_cache/`. This only happens once.
+**First run:** the FastEmbed model (~90MB) is downloaded automatically into `.model_cache/`. This only happens once.
 
-Videos processed before this version (stored in ChromaDB) need to be processed again.
+**Using the app:**
+1. Paste a YouTube link and press **Make notes**.
+2. If captions can't be fetched, click **Paste the transcript instead**, paste it from YouTube (description → *Show transcript*), and press **Make notes** again.
+3. Switch between the **Summary**, **Notes** and **Questions** tabs. Click any red timestamp to jump the video.
+
+> Upgrading from an older version? Videos processed with ChromaDB need to be processed again.
 
 ---
 
-## 📡 API Documentation
+## API Documentation
 
 FastAPI auto-generates interactive docs at `http://localhost:8000/docs`.
 
@@ -254,9 +257,9 @@ FastAPI auto-generates interactive docs at `http://localhost:8000/docs`.
 | Endpoint | Method | Description |
 |---|---|---|
 | `/api/health` | GET | Health check |
-| `/api/video/process` | POST | Process a YouTube video |
+| `/api/video/process` | POST | Process a YouTube video (optionally with a pasted transcript) |
 | `/api/video/{video_id}` | GET | Get video metadata |
-| `/api/video/{video_id}/summary` | GET | Generate/retrieve AI summary |
+| `/api/video/{video_id}/summary` | GET | Generate/retrieve the summary |
 | `/api/video/{video_id}/notes` | GET | Generate/retrieve lecture notes |
 | `/api/video/{video_id}/ask` | POST | Ask a question (RAG Q&A) |
 
@@ -271,10 +274,9 @@ curl -X POST http://localhost:8000/api/video/process \
 ### Example: Process with a Pasted Transcript
 
 ```bash
-curl -X POST http://localhost:8000/api/video/process   -H "Content-Type: application/json"   -d '{"url": "https://www.youtube.com/watch?v=VIDEO_ID", "transcript": "0:00
-Welcome...
-0:05
-Today..."}'
+curl -X POST http://localhost:8000/api/video/process \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.youtube.com/watch?v=VIDEO_ID", "transcript": "0:00\nWelcome...\n0:05\nToday..."}'
 ```
 
 If fetching the transcript fails, the API returns `422` with `{"detail": {"code": "transcript_unavailable", ...}}` and the web page opens the paste box.
@@ -289,13 +291,13 @@ curl -X POST http://localhost:8000/api/video/VIDEO_ID/ask \
 
 ---
 
-## 📦 Deployment
+## Deployment
 
 ### Docker
 
 ```bash
-docker build -t youtube-rag .
-docker run -p 8000:8000 --env-file .env youtube-rag
+docker build -t vidmind .
+docker run -p 8000:8000 --env-file .env vidmind
 ```
 
 ### Deploy for Free on Render
@@ -315,7 +317,7 @@ The app runs on Render's free web service (512 MB RAM) with Qdrant Cloud's free 
 
 ---
 
-## 💡 Example Questions
+## Example Questions
 
 After processing a video, try asking:
 
@@ -328,18 +330,19 @@ After processing a video, try asking:
 
 ---
 
-## ⚠️ Limitations
+## Limitations
 
 ### Transcript Availability
 - Not all YouTube videos have transcripts
 - Auto-generated transcripts may contain errors
 - Non-English videos may have limited transcript support
+- Pasted transcripts without timestamps get estimated timestamps
 
 ### Free-Tier API Limits
-- Groq free tier has rate limits (requests per minute/day) per model — the app falls back to a second Groq model, then Gemini
+- Groq's free tier has per-model rate limits (requests per minute/day) — the app falls back to a second Groq model, then Gemini
 - Gemini's free tier may use your prompts to improve Google's products
 - Long videos require multiple LLM calls, consuming more of the rate limit
-- If rate-limited, wait a moment and retry
+- If every provider is rate-limited, wait a moment and retry
 
 ### Content Accuracy
 - Generated content is based on the transcript, which may have errors
@@ -358,24 +361,24 @@ After processing a video, try asking:
 
 ---
 
-## 🔮 Future Improvements
+## Future Improvements
 
-- 🌐 Multilingual transcript support
-- 📄 PDF export for lecture notes
-- 🎴 Flashcard generation from notes
-- 📊 Quiz generation from lecture content
-- 🗣 Speaker identification/diarization
-- 📋 Playlist batch processing
-- 📑 Chapter detection from timestamps
-- 🔍 Cross-video search across processed lectures
-- 📱 Progressive Web App (PWA) support
+- Multilingual transcript support
+- PDF export for lecture notes
+- Flashcard generation from notes
+- Quiz generation from lecture content
+- Speaker identification/diarization
+- Playlist batch processing
+- Chapter detection from timestamps
+- Cross-video search across processed lectures
+- Progressive Web App (PWA) support
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```text
-youtube-rag/
+vidmind-ai/
 ├── backend/
 │   ├── __init__.py
 │   ├── main.py                    # FastAPI entry point
@@ -386,7 +389,7 @@ youtube-rag/
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── youtube_service.py     # URL parsing & validation
-│   │   ├── transcript_service.py  # Transcript extraction & cleaning
+│   │   ├── transcript_service.py  # Transcript fetching, pasted-transcript parsing, cleaning
 │   │   ├── chunking_service.py    # Semantic chunking
 │   │   ├── embedding_service.py   # FastEmbed embeddings
 │   │   ├── vector_store.py        # Qdrant: chunks + video records
@@ -402,7 +405,7 @@ youtube-rag/
 │       └── helpers.py             # Utility functions
 ├── frontend/
 │   ├── index.html                 # Single-page application
-│   ├── style.css                  # Design system & styles
+│   ├── style.css                  # Styles (light & dark mode)
 │   └── app.js                     # Frontend logic
 ├── qdrant_data/                   # Local vector storage (when QDRANT_URL is empty)
 ├── .env.example                   # Environment variable template
@@ -415,21 +418,36 @@ youtube-rag/
 
 ---
 
-##  Screenshots 
-Upload page - <img width="1280" height="670" alt="image" src="https://github.com/user-attachments/assets/44f188da-cde6-4c00-a788-3b1218cd2810" />
--
+## Screenshots
 
-Dashboard - <img width="1280" height="491" alt="image" src="https://github.com/user-attachments/assets/b13b4220-0d2b-48c0-b0c6-e3436a6cec6c" />
--
+**Upload page**
 
-Overview tab - <img width="1280" height="635" alt="image" src="https://github.com/user-attachments/assets/6126c543-0ef3-4fad-9713-072a6354ad0f" />
--
+<img width="1280" height="668" alt="Upload page" src="https://github.com/user-attachments/assets/9c0fa268-a1a2-4e8d-a119-375a00e18a84" />
 
-Notes tab - <img width="1280" height="661" alt="image" src="https://github.com/user-attachments/assets/8b9076db-5c47-44f2-8f30-89cf72537744" />
--
+**Processing**
 
-Important timestamps (in both overview and notes tab) - <img width="1280" height="652" alt="image" src="https://github.com/user-attachments/assets/2852d9c0-0bfd-4547-85ab-eb0448e48cd4" />
--
+<img width="1280" height="670" alt="Processing screen" src="https://github.com/user-attachments/assets/bfd2e1ee-d0c0-4f04-abaa-578f3dfcfdc1" />
 
-Ai Agent - <img width="1280" height="664" alt="image" src="https://github.com/user-attachments/assets/74b0a1d9-270c-4bba-a127-9defca616ccf" />
--
+**Summary tab**
+
+<img width="1280" height="671" alt="Summary tab" src="https://github.com/user-attachments/assets/2598d1fc-cb3a-4b30-9cb8-2ca15fc5bf10" />
+
+**Notes tab (generating)**
+
+<img width="1280" height="668" alt="Notes tab while generating" src="https://github.com/user-attachments/assets/99e09b08-e43a-4a9f-8318-b6d616e87dbb" />
+
+**Notes tab**
+
+<img width="1280" height="667" alt="Notes tab" src="https://github.com/user-attachments/assets/8beadf84-7878-4457-ae1d-300395648d1e" />
+
+**Important timestamps**
+
+<img width="1280" height="667" alt="Important timestamps" src="https://github.com/user-attachments/assets/49e5b390-2d3b-42cb-834a-b6a6b6e465ea" />
+
+**Questions tab**
+
+<img width="1280" height="669" alt="Questions tab" src="https://github.com/user-attachments/assets/6054d0f0-f9ee-48f0-83d0-1d0cd9969644" />
+
+**Q&A conversation**
+
+<img width="1280" height="666" alt="Q&A conversation" src="https://github.com/user-attachments/assets/277cb3db-e675-4052-98dc-c80fd6b4e800" />
