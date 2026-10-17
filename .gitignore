@@ -15,13 +15,14 @@ eggs/
 # Virtual environment
 proj/
 
-# ChromaDB persistent storage
-chroma_db/
+# Local Qdrant storage
+qdrant_data/
 
-# Cached summaries and notes
+# Old ChromaDB storage and file cache
+chroma_db/
 cache/
 
-# Sentence Transformer model cache
+# FastEmbed model cache
 .model_cache/
 
 # IDE

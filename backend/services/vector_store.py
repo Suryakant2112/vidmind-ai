@@ -1,126 +1,140 @@
 """
-Vector store abstraction over ChromaDB.
-Handles persistent storage, embedding storage, and semantic retrieval.
+Vector store abstraction over Qdrant.
+Handles chunk storage, semantic retrieval, and per-video records
+(metadata, cached summary and notes) so nothing depends on local disk.
+
+Uses Qdrant Cloud when QDRANT_URL is set, otherwise an embedded local Qdrant.
 """
 
 import logging
-from typing import Optional
-import chromadb
-from chromadb.utils import embedding_functions
-import torch
+import uuid
+from typing import Any, Optional
+from qdrant_client import QdrantClient, models
 
 from backend.config import get_settings
+from backend.services import embedding_service
 
 logger = logging.getLogger(__name__)
 
-# Module-level ChromaDB client cache
-_chroma_client: Optional[chromadb.PersistentClient] = None
+CHUNKS_COLLECTION = "vidmind_chunks"
+VIDEOS_COLLECTION = "vidmind_videos"
+
+# Module-level Qdrant client cache
+_client: Optional[QdrantClient] = None
 
 
-def get_chroma_client() -> chromadb.PersistentClient:
-    """Get or create the persistent ChromaDB client."""
-    global _chroma_client
-    if _chroma_client is None:
+def get_client() -> QdrantClient:
+    """Get or create the Qdrant client and make sure collections exist."""
+    global _client
+    if _client is None:
         settings = get_settings()
-        path = settings.CHROMA_DB_PATH
-        logger.info(f"Initializing ChromaDB PersistentClient at: {path}")
-        _chroma_client = chromadb.PersistentClient(path=path)
-    return _chroma_client
+        if settings.QDRANT_URL:
+            logger.info(f"Connecting to Qdrant Cloud at: {settings.QDRANT_URL}")
+            client = QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY or None)
+        else:
+            logger.info(f"Using local embedded Qdrant at: {settings.QDRANT_PATH}")
+            client = QdrantClient(path=settings.QDRANT_PATH)
+        _ensure_collections(client, is_server=bool(settings.QDRANT_URL))
+        _client = client
+    return _client
 
 
-def get_embedding_function():
-    """Get the ChromaDB-compatible Sentence Transformer embedding function."""
-    settings = get_settings()
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    return embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name=settings.EMBEDDING_MODEL,
-        device=device,
+def close_client() -> None:
+    """Close the Qdrant client (releases the local storage lock)."""
+    global _client
+    if _client is not None:
+        _client.close()
+        _client = None
+
+
+def _ensure_collections(client: QdrantClient, is_server: bool) -> None:
+    """Create the chunk and video collections on first run."""
+    if not client.collection_exists(CHUNKS_COLLECTION):
+        client.create_collection(
+            collection_name=CHUNKS_COLLECTION,
+            vectors_config=models.VectorParams(
+                size=embedding_service.get_embedding_dim(),
+                distance=models.Distance.COSINE,
+            ),
+        )
+        # Qdrant Cloud needs a payload index to filter by video_id (local mode ignores it)
+        if is_server:
+            client.create_payload_index(
+                collection_name=CHUNKS_COLLECTION,
+                field_name="video_id",
+                field_schema=models.PayloadSchemaType.KEYWORD,
+            )
+        logger.info(f"Created collection '{CHUNKS_COLLECTION}'")
+
+    if not client.collection_exists(VIDEOS_COLLECTION):
+        # Records only — a 1-dim placeholder vector keeps this portable across Qdrant versions
+        client.create_collection(
+            collection_name=VIDEOS_COLLECTION,
+            vectors_config=models.VectorParams(size=1, distance=models.Distance.DOT),
+        )
+        logger.info(f"Created collection '{VIDEOS_COLLECTION}'")
+
+
+def _video_filter(video_id: str) -> models.Filter:
+    return models.Filter(
+        must=[models.FieldCondition(key="video_id", match=models.MatchValue(value=video_id))]
     )
 
 
-def get_collection_name(video_id: str) -> str:
-    """Generate a collection name from a video ID."""
-    # ChromaDB collection names: 3-63 chars, alphanumeric + underscores/hyphens
-    return f"yt_{video_id}"
+def _point_id(*parts: Any) -> str:
+    """Deterministic UUID so re-processing a video overwrites instead of duplicating."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, "/".join(str(p) for p in parts)))
 
+
+# =============================================================================
+# Chunks
+# =============================================================================
 
 def video_exists(video_id: str) -> bool:
-    """
-    Check if a video has already been processed and stored in ChromaDB.
-
-    Returns True if the collection exists and has documents.
-    """
-    try:
-        client = get_chroma_client()
-        collection_name = get_collection_name(video_id)
-        existing = client.list_collections()
-        
-        # Check if our collection name exists
-        for col in existing:
-            col_name = col if isinstance(col, str) else getattr(col, 'name', str(col))
-            if col_name == collection_name:
-                collection = client.get_collection(
-                    name=collection_name,
-                    embedding_function=get_embedding_function(),
-                )
-                count = collection.count()
-                logger.info(f"Collection '{collection_name}' exists with {count} documents")
-                return count > 0
-        return False
-    except Exception as e:
-        logger.warning(f"Error checking video existence: {e}")
-        return False
+    """Check if a video has already been processed and stored."""
+    return get_chunk_count(video_id) > 0
 
 
 def store_chunks(video_id: str, chunks: list[dict]) -> int:
     """
-    Store transcript chunks with embeddings in ChromaDB.
+    Embed and store transcript chunks.
 
     Args:
         video_id: YouTube video ID
-        chunks: List of chunk dicts with 'text' and 'metadata' keys
+        chunks: List of chunk dicts with 'text', 'chunk_index' and 'metadata' keys
 
     Returns:
-        Number of documents stored
+        Number of chunks stored
     """
     if not chunks:
         logger.warning("No chunks to store")
         return 0
 
-    client = get_chroma_client()
-    collection_name = get_collection_name(video_id)
+    client = get_client()
+    vectors = embedding_service.generate_embeddings([chunk["text"] for chunk in chunks])
 
-    # Get or create the collection with our embedding function
-    collection = client.get_or_create_collection(
-        name=collection_name,
-        embedding_function=get_embedding_function(),
-        metadata={"hnsw:space": "cosine"},
-    )
-
-    # Prepare data for ChromaDB
-    ids = [f"{video_id}_chunk_{chunk['chunk_index']}" for chunk in chunks]
-    documents = [chunk["text"] for chunk in chunks]
-    metadatas = [chunk["metadata"] for chunk in chunks]
-
-    # Upsert in batches (ChromaDB handles batching internally but
-    # we limit to avoid memory issues with very large transcripts)
-    batch_size = 100
-    total_stored = 0
-
-    for i in range(0, len(documents), batch_size):
-        batch_ids = ids[i : i + batch_size]
-        batch_docs = documents[i : i + batch_size]
-        batch_meta = metadatas[i : i + batch_size]
-
-        collection.upsert(
-            ids=batch_ids,
-            documents=batch_docs,
-            metadatas=batch_meta,
+    points = [
+        models.PointStruct(
+            id=_point_id(video_id, chunk["chunk_index"]),
+            vector=vector,
+            payload={**chunk["metadata"], "text": chunk["text"]},
         )
-        total_stored += len(batch_ids)
+        for chunk, vector in zip(chunks, vectors)
+    ]
 
-    logger.info(f"Stored {total_stored} chunks in collection '{collection_name}'")
-    return total_stored
+    # Upsert in batches to keep request sizes small
+    batch_size = 100
+    for i in range(0, len(points), batch_size):
+        client.upsert(collection_name=CHUNKS_COLLECTION, points=points[i : i + batch_size])
+
+    logger.info(f"Stored {len(points)} chunks for video {video_id}")
+    return len(points)
+
+
+def _payload_to_chunk(payload: dict) -> dict:
+    payload = dict(payload or {})
+    text = payload.pop("text", "")
+    return {"text": text, "metadata": payload}
 
 
 def query_chunks(
@@ -129,12 +143,7 @@ def query_chunks(
     top_k: Optional[int] = None,
 ) -> list[dict]:
     """
-    Perform semantic similarity search against stored video chunks.
-
-    Args:
-        video_id: YouTube video ID
-        query_text: The search query
-        top_k: Number of results to return (default from config)
+    Semantic similarity search over one video's chunks.
 
     Returns:
         List of dicts with 'text', 'metadata', and 'distance' keys,
@@ -144,37 +153,22 @@ def query_chunks(
     top_k = top_k or settings.TOP_K
 
     try:
-        client = get_chroma_client()
-        collection_name = get_collection_name(video_id)
-
-        collection = client.get_collection(
-            name=collection_name,
-            embedding_function=get_embedding_function(),
+        result = get_client().query_points(
+            collection_name=CHUNKS_COLLECTION,
+            query=embedding_service.generate_query_embedding(query_text),
+            query_filter=_video_filter(video_id),
+            limit=top_k,
+            with_payload=True,
         )
-
-        results = collection.query(
-            query_texts=[query_text],
-            n_results=min(top_k, collection.count()),
-            include=["documents", "metadatas", "distances"],
-        )
-
-        # Format results
-        formatted = []
-        if results and results["documents"] and results["documents"][0]:
-            for i in range(len(results["documents"][0])):
-                formatted.append({
-                    "text": results["documents"][0][i],
-                    "metadata": results["metadatas"][0][i] if results["metadatas"] else {},
-                    "distance": results["distances"][0][i] if results["distances"] else 0.0,
-                })
-
-        logger.info(
-            f"Query returned {len(formatted)} results for '{query_text[:50]}...'"
-        )
+        formatted = [
+            {**_payload_to_chunk(point.payload), "distance": 1.0 - point.score}
+            for point in result.points
+        ]
+        logger.info(f"Query returned {len(formatted)} results for '{query_text[:50]}...'")
         return formatted
 
     except Exception as e:
-        logger.error(f"ChromaDB query failed: {e}")
+        logger.error(f"Qdrant query failed: {e}")
         return []
 
 
@@ -186,31 +180,23 @@ def get_all_chunks(video_id: str) -> list[dict]:
         List of dicts with 'text' and 'metadata', ordered by chunk_index.
     """
     try:
-        client = get_chroma_client()
-        collection_name = get_collection_name(video_id)
-
-        collection = client.get_collection(
-            name=collection_name,
-            embedding_function=get_embedding_function(),
-        )
-
-        results = collection.get(
-            include=["documents", "metadatas"],
-        )
-
+        client = get_client()
         chunks = []
-        if results and results["documents"]:
-            for i in range(len(results["documents"])):
-                chunks.append({
-                    "text": results["documents"][i],
-                    "metadata": results["metadatas"][i] if results["metadatas"] else {},
-                })
+        offset = None
+        while True:
+            points, offset = client.scroll(
+                collection_name=CHUNKS_COLLECTION,
+                scroll_filter=_video_filter(video_id),
+                limit=256,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            chunks.extend(_payload_to_chunk(p.payload) for p in points)
+            if offset is None:
+                break
 
-        # Sort by chunk_index for ordered processing
-        chunks.sort(
-            key=lambda c: c.get("metadata", {}).get("chunk_index", 0)
-        )
-
+        chunks.sort(key=lambda c: c["metadata"].get("chunk_index", 0))
         return chunks
 
     except Exception as e:
@@ -221,12 +207,42 @@ def get_all_chunks(video_id: str) -> list[dict]:
 def get_chunk_count(video_id: str) -> int:
     """Get the number of stored chunks for a video."""
     try:
-        client = get_chroma_client()
-        collection_name = get_collection_name(video_id)
-        collection = client.get_collection(
-            name=collection_name,
-            embedding_function=get_embedding_function(),
-        )
-        return collection.count()
-    except Exception:
+        return get_client().count(
+            collection_name=CHUNKS_COLLECTION,
+            count_filter=_video_filter(video_id),
+            exact=True,
+        ).count
+    except Exception as e:
+        logger.warning(f"Error counting chunks for {video_id}: {e}")
         return 0
+
+
+# =============================================================================
+# Video records (metadata, cached summary and notes)
+# =============================================================================
+
+def get_video_record(video_id: str) -> dict:
+    """Return the stored record for a video, or {} if none."""
+    try:
+        points = get_client().retrieve(
+            collection_name=VIDEOS_COLLECTION,
+            ids=[_point_id("video", video_id)],
+            with_payload=True,
+        )
+        return dict(points[0].payload or {}) if points else {}
+    except Exception as e:
+        logger.warning(f"Failed to load record for {video_id}: {e}")
+        return {}
+
+
+def update_video_record(video_id: str, **fields: Any) -> None:
+    """Merge fields into a video's record, creating it if needed."""
+    try:
+        record = get_video_record(video_id)
+        record.update(fields, video_id=video_id)
+        get_client().upsert(
+            collection_name=VIDEOS_COLLECTION,
+            points=[models.PointStruct(id=_point_id("video", video_id), vector=[1.0], payload=record)],
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save record for {video_id}: {e}")

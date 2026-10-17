@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.routes import router as api_router
 from backend.config import get_settings
+from backend.services import vector_store
 
 # Configure logging
 logging.basicConfig(
@@ -35,19 +36,19 @@ async def lifespan(app: FastAPI):
     logger.info("VidMind AI — Starting up")
     logger.info(f"  LLM Model:     {settings.LLM_MODEL}")
     logger.info(f"  Embedding:     {settings.EMBEDDING_MODEL}")
-    logger.info(f"  ChromaDB:      {settings.CHROMA_DB_PATH}")
+    logger.info(f"  Qdrant:        {settings.QDRANT_URL or settings.QDRANT_PATH}")
     logger.info(f"  Chunk Size:    {settings.CHUNK_SIZE}")
     logger.info(f"  Top-K:         {settings.TOP_K}")
     logger.info(f"  Max Duration:  {settings.MAX_VIDEO_DURATION_MINUTES} min")
     logger.info("=" * 60)
 
-    # Create storage directories
-    os.makedirs(settings.CHROMA_DB_PATH, exist_ok=True)
-    os.makedirs(settings.CACHE_DIR, exist_ok=True)
+    # Load the embedding model and connect to Qdrant now, so the first request isn't slow
+    vector_store.get_client()
 
     yield
 
     # Shutdown
+    vector_store.close_client()
     logger.info("VidMind AI — Shutting down")
 
 
@@ -62,11 +63,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow frontend to communicate with API
+# CORS — the frontend is served from the same origin; this only matters for
+# calling the API from elsewhere. No cookies are used, so credentials stay off.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -99,25 +99,31 @@ function renderMd(md) {
 
 // ─── API Helpers ─────────────────────────────────────────────────────────────
 
+// Turn an error response into an Error. Structured details ({code, message})
+// keep their code so callers can react (e.g. offer the paste-transcript box).
+async function apiError(res) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    const detail = body.detail;
+    const err = new Error(
+        (typeof detail === 'object' && detail?.message) || (typeof detail === 'string' && detail) || `Error ${res.status}`
+    );
+    if (typeof detail === 'object') err.code = detail?.code;
+    return err;
+}
+
 async function apiPost(path, data = {}) {
     const res = await fetch(API + path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
     });
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(err.detail || `Error ${res.status}`);
-    }
+    if (!res.ok) throw await apiError(res);
     return res.json();
 }
 
 async function apiGet(path) {
     const res = await fetch(API + path);
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(err.detail || `Error ${res.status}`);
-    }
+    if (!res.ok) throw await apiError(res);
     return res.json();
 }
 
@@ -126,6 +132,8 @@ async function apiGet(path) {
 async function processVideo() {
     const url = document.getElementById('urlInput').value.trim();
     if (!url) return showError('Please paste a YouTube URL.');
+    const pasteOpen = document.getElementById('pasteBox').classList.contains('show');
+    const transcript = pasteOpen ? document.getElementById('transcriptInput').value.trim() : '';
 
     hideError();
     state.processing = true;
@@ -157,7 +165,7 @@ async function processVideo() {
     }, 300);
 
     try {
-        const result = await apiPost('/video/process', { url });
+        const result = await apiPost('/video/process', transcript ? { url, transcript } : { url });
         clearInterval(crawl);
 
         // Complete the bar
@@ -176,7 +184,12 @@ async function processVideo() {
         clearInterval(crawl);
         bar.classList.remove('progress-bar--shimmer');
         fill.style.width = '0%';
-        showError(err.message);
+        if (err.code === 'transcript_unavailable') {
+            showPasteBox();
+            showError(`${err.message} YouTube may be blocking this server — paste the transcript below and press Process again.`);
+        } else {
+            showError(err.message);
+        }
         screen.classList.remove('show');
         document.getElementById('landing').style.display = '';
     } finally {
@@ -185,11 +198,28 @@ async function processVideo() {
     }
 }
 
+function togglePasteBox() {
+    const box = document.getElementById('pasteBox');
+    box.classList.contains('show') ? hidePasteBox() : showPasteBox();
+}
+
+function showPasteBox() {
+    document.getElementById('pasteBox').classList.add('show');
+    document.getElementById('pasteToggle').textContent = '− Hide transcript box';
+    document.getElementById('transcriptInput').focus();
+}
+
+function hidePasteBox() {
+    document.getElementById('pasteBox').classList.remove('show');
+    document.getElementById('pasteToggle').textContent = '+ Or paste the transcript yourself';
+}
+
 function setBtnLoading(on) {
     const btn = document.getElementById('processBtn');
     const inp = document.getElementById('urlInput');
     btn.disabled = on;
     inp.disabled = on;
+    document.getElementById('transcriptInput').disabled = on;
     btn.textContent = on ? 'Processing...' : 'Process →';
 }
 
@@ -383,6 +413,9 @@ function resetApp() {
     document.getElementById('newVideoBtn').style.display = 'none';
     document.getElementById('urlInput').value = '';
     document.getElementById('urlInput').disabled = false;
+    document.getElementById('transcriptInput').value = '';
+    document.getElementById('transcriptInput').disabled = false;
+    hidePasteBox();
     document.getElementById('processBtn').disabled = false;
     document.getElementById('processBtn').textContent = 'Process →';
 

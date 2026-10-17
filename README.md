@@ -5,7 +5,7 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
 ![Python](https://img.shields.io/badge/Python-3.11+-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green)
 ![LangChain](https://img.shields.io/badge/LangChain-0.3+-orange)
-![ChromaDB](https://img.shields.io/badge/ChromaDB-1.0+-purple)
+![Qdrant](https://img.shields.io/badge/Qdrant-1.12+-purple)
 
 ---
 
@@ -17,8 +17,10 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
 - **💬 RAG-Based Q&A** — Ask questions grounded in the video's transcript
 - **⏱ Timestamp Sources** — Clickable timestamps linking back to the exact moment in the video
 - **🔄 Conversational Follow-ups** — Multi-turn Q&A with context awareness
-- **🧠 Local Embeddings** — Sentence Transformers running on GPU/CPU (no paid API)
-- **💾 Persistent Vector Storage** — ChromaDB with caching to avoid reprocessing
+- **🧠 Local Embeddings** — FastEmbed (ONNX) on CPU, light enough for free hosting
+- **💾 Persistent Vector Storage** — Qdrant (Cloud or local), also caches summaries & notes
+- **🔁 LLM Fallback Chain** — Groq → second Groq model → Gemini, to stretch free limits
+- **📋 Paste Transcript** — Works even when YouTube blocks the server from fetching captions
 - **📊 Hierarchical Processing** — Long videos are processed in stages to handle context limits
 
 ---
@@ -47,13 +49,13 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
                      │
                      ↓
           ┌─────────────────────┐
-          │ Sentence Transformer │  ← all-MiniLM-L6-v2 (local, GPU/CPU)
+          │ FastEmbed Embeddings │  ← all-MiniLM-L6-v2 (ONNX, local CPU)
           │     Embeddings       │
           └──────────┬──────────┘
                      │
                      ↓
           ┌─────────────────────┐
-          │      ChromaDB        │  ← Persistent local vector database
+          │       Qdrant         │  ← Qdrant Cloud (free) or local
           └──────────┬──────────┘
                      │
                      ↓
@@ -68,7 +70,7 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
           └──────────┼──────────┘
                      ↓
           ┌─────────────────────┐
-          │   Groq LLM API       │  ← qwen/qwen3.8-27b (free tier)
+          │ Groq → Gemini chain  │  ← free tiers, automatic fallback
           └──────────┬──────────┘
                      │
                      ↓
@@ -82,16 +84,16 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
 |---|---|---|
 | Transcript extraction | `youtube-transcript-api` | Free |
 | Text cleaning & chunking | LangChain text splitters | Free |
-| Embeddings | Sentence Transformers (`all-MiniLM-L6-v2`) | Free (GPU/CPU) |
-| Vector database | ChromaDB (persistent local) | Free |
-| RAG retrieval | ChromaDB similarity search | Free |
+| Embeddings | FastEmbed (`all-MiniLM-L6-v2`, ONNX) | Free (CPU) |
+| RAG retrieval | Qdrant similarity search | Free |
 | Web server | FastAPI + Uvicorn | Free |
 
 ### What Uses External API (Free Tier)
 
 | Component | Technology | Cost |
 |---|---|---|
-| LLM inference | Groq API (`qwen/qwen3.8-27b`) | Free tier (rate-limited) |
+| LLM inference | Groq (`qwen/qwen3.8-27b`, then `openai/gpt-oss-120b`) → Gemini (`gemini-3.5-flash-lite`) | Free tiers (rate-limited) |
+| Vector database | Qdrant Cloud (or embedded local Qdrant) | Free tier |
 
 ---
 
@@ -100,9 +102,9 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
 | Layer | Technology | Role |
 |---|---|---|
 | **Backend** | FastAPI | REST API, async request handling |
-| **LLM** | Groq (via `langchain-groq`) | Text generation for summaries, notes, Q&A |
-| **Embeddings** | Sentence Transformers | Local vector embeddings (CPU) |
-| **Vector DB** | ChromaDB | Persistent semantic search |
+| **LLM** | Groq + Gemini (via `langchain-openai`) | Text generation with provider fallback |
+| **Embeddings** | FastEmbed (ONNX Runtime) | Local vector embeddings (CPU) |
+| **Vector DB** | Qdrant | Semantic search + cached summaries/notes |
 | **RAG** | LangChain | Prompt templates, chain composition |
 | **Transcript** | `youtube-transcript-api` | YouTube transcript extraction |
 | **Frontend** | HTML + CSS + JavaScript | Single-page application |
@@ -118,10 +120,10 @@ An AI-powered learning assistant that transforms YouTube lectures into structure
 User Question: "What is a vector database?"
          │
          ↓
-   Question Embedding          ← Sentence Transformer (local)
+   Question Embedding          ← FastEmbed (local)
          │
          ↓
-   ChromaDB Similarity Search  ← Find top-K most relevant transcript chunks
+   Qdrant Similarity Search    ← Find top-K most relevant transcript chunks
          │
          ↓
    Context Construction         ← Combine retrieved chunks with timestamps
@@ -130,7 +132,7 @@ User Question: "What is a vector database?"
    LLM Prompt                  ← System prompt enforces grounding policy
          │
          ↓
-   Groq API                    ← Generate answer using ONLY retrieved context
+   Groq / Gemini               ← Generate answer using ONLY retrieved context
          │
          ↓
    Grounded Answer + Sources   ← Answer with clickable timestamp references
@@ -155,7 +157,7 @@ For long videos, notes are generated hierarchically to avoid context-window over
 ```text
 Full Transcript
       ↓
-Semantic Chunks (ChromaDB)
+Semantic Chunks (Qdrant)
       ↓
 Chunk-Level Notes              ← Each chunk → detailed study notes
       ↓
@@ -174,6 +176,7 @@ This pipeline ensures that even 2-hour lectures produce high-quality notes witho
 
 - Python 3.11+
 - A free Groq API key ([console.groq.com](https://console.groq.com))
+- Optional: a free Gemini API key ([aistudio.google.com](https://aistudio.google.com)) as a fallback
 
 ### Setup
 
@@ -201,12 +204,19 @@ cp .env.example .env
 ### Environment Variables
 
 ```env
-# Get a free key from https://console.groq.com
-LLM_API_KEY=your_groq_api_key_here
+# LLM providers, tried in order (any without a key is skipped)
+LLM_API_KEY=your_groq_api_key_here      # https://console.groq.com
 LLM_MODEL=qwen/qwen3.8-27b
+LLM_FALLBACK_MODEL=openai/gpt-oss-120b  # separate Groq rate-limit bucket
+GEMINI_API_KEY=                         # https://aistudio.google.com (optional)
+GEMINI_MODEL=gemini-3.5-flash-lite
 
-# Local embedding model (downloaded automatically, ~22MB)
+# Local embedding model (downloaded automatically, ~90MB)
 EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+
+# Vector database — leave QDRANT_URL empty to use a local database in ./qdrant_data
+QDRANT_URL=
+QDRANT_API_KEY=
 
 # RAG settings
 TOP_K=5
@@ -229,7 +239,9 @@ uvicorn backend.main:app --reload
 # http://localhost:8000
 ```
 
-**First run**: The Sentence Transformer model (~22MB) will be downloaded automatically. This only happens once.
+**First run**: The FastEmbed model (~90MB) is downloaded automatically into `.model_cache/`. This only happens once.
+
+Videos processed before this version (stored in ChromaDB) need to be processed again.
 
 ---
 
@@ -256,6 +268,17 @@ curl -X POST http://localhost:8000/api/video/process \
   -d '{"url": "https://www.youtube.com/watch?v=VIDEO_ID"}'
 ```
 
+### Example: Process with a Pasted Transcript
+
+```bash
+curl -X POST http://localhost:8000/api/video/process   -H "Content-Type: application/json"   -d '{"url": "https://www.youtube.com/watch?v=VIDEO_ID", "transcript": "0:00
+Welcome...
+0:05
+Today..."}'
+```
+
+If fetching the transcript fails, the API returns `422` with `{"detail": {"code": "transcript_unavailable", ...}}` and the web page opens the paste box.
+
 ### Example: Ask a Question
 
 ```bash
@@ -275,21 +298,20 @@ docker build -t youtube-rag .
 docker run -p 8000:8000 --env-file .env youtube-rag
 ```
 
-### Free Hosting Options
+### Deploy for Free on Render
 
-| Platform | Notes |
-|---|---|
-| **Render** | Free tier with 750 hours/month. May sleep after inactivity. |
-| **Railway** | Free $5 credit/month. Good for demos. |
-| **Fly.io** | Free tier with 3 shared VMs. |
+The app runs on Render's free web service (512 MB RAM) with Qdrant Cloud's free cluster for storage.
 
-**Important**: Free-tier hosting typically has:
-- Limited RAM (512MB–1GB) — the embedding model needs ~200MB
-- Cold starts after inactivity
-- No persistent disk — ChromaDB data resets on restart
-- CPU or GPU-only (which is fine for this project)
+1. **Qdrant Cloud** — create a free cluster at [cloud.qdrant.io](https://cloud.qdrant.io) and copy its URL and API key.
+2. **API keys** — get a Groq key ([console.groq.com](https://console.groq.com)) and, optionally, a Gemini key ([aistudio.google.com](https://aistudio.google.com)).
+3. **Render** — push this repo to GitHub, then in Render choose **New → Blueprint** and select the repo. `render.yaml` sets everything up; enter `LLM_API_KEY`, `GEMINI_API_KEY`, `QDRANT_URL` and `QDRANT_API_KEY` when asked.
+4. Open the `onrender.com` URL Render gives you.
 
-For persistent data on free tiers, consider using ChromaDB in ephemeral mode and re-processing videos on demand.
+**What to expect on the free tier:**
+- The service sleeps after ~15 minutes idle; the first visit afterwards takes about a minute.
+- **YouTube often blocks transcript requests from cloud servers.** When that happens, the page opens a paste box — copy the transcript from YouTube (description → *Show transcript*) and paste it in.
+- Processed videos, summaries and notes live in Qdrant Cloud, so they survive restarts.
+- Free-tier limits change often; check each provider's dashboard for your current limits.
 
 ---
 
@@ -314,7 +336,8 @@ After processing a video, try asking:
 - Non-English videos may have limited transcript support
 
 ### Free-Tier API Limits
-- Groq free tier has rate limits (requests per minute/day)
+- Groq free tier has rate limits (requests per minute/day) per model — the app falls back to a second Groq model, then Gemini
+- Gemini's free tier may use your prompts to improve Google's products
 - Long videos require multiple LLM calls, consuming more of the rate limit
 - If rate-limited, wait a moment and retry
 
@@ -329,7 +352,7 @@ After processing a video, try asking:
 - Processing time increases with video length
 
 ### Free Hosting
-- Ephemeral storage — processed data may be lost on restart
+- YouTube may block transcript fetching from cloud servers — use the paste box
 - Cold starts after inactivity periods
 - Limited CPU/RAM
 
@@ -365,9 +388,9 @@ youtube-rag/
 │   │   ├── youtube_service.py     # URL parsing & validation
 │   │   ├── transcript_service.py  # Transcript extraction & cleaning
 │   │   ├── chunking_service.py    # Semantic chunking
-│   │   ├── embedding_service.py   # Sentence Transformer embeddings
-│   │   ├── vector_store.py        # ChromaDB abstraction
-│   │   ├── llm_service.py         # Groq LLM integration
+│   │   ├── embedding_service.py   # FastEmbed embeddings
+│   │   ├── vector_store.py        # Qdrant: chunks + video records
+│   │   ├── llm_service.py         # Groq → Gemini fallback chain
 │   │   ├── rag_service.py         # RAG pipeline
 │   │   ├── summary_service.py     # Hierarchical summarization
 │   │   └── notes_service.py       # Hierarchical note generation
@@ -381,12 +404,12 @@ youtube-rag/
 │   ├── index.html                 # Single-page application
 │   ├── style.css                  # Design system & styles
 │   └── app.js                     # Frontend logic
-├── chroma_db/                     # Persistent vector storage
-├── cache/                         # Cached summaries & notes
+├── qdrant_data/                   # Local vector storage (when QDRANT_URL is empty)
 ├── .env.example                   # Environment variable template
 ├── .gitignore
 ├── requirements.txt
 ├── Dockerfile
+├── render.yaml                    # Render deployment blueprint
 └── README.md
 ```
 

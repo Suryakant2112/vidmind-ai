@@ -51,6 +51,21 @@
                             Process →
                         </button>
                     </div>
+
+                    <button class="paste-toggle" id="pasteToggle" type="button" onclick="togglePasteBox()">
+                        + Or paste the transcript yourself
+                    </button>
+                    <div class="paste-box" id="pasteBox">
+                        <p class="paste-box__hint">
+                            On YouTube, open the video description → <strong>Show transcript</strong>, select all the transcript text and paste it here. SRT / VTT subtitle text works too. Keep the URL above so the video player and timestamps work.
+                        </p>
+                        <textarea
+                            id="transcriptInput"
+                            rows="8"
+                            placeholder="0:00&#10;Welcome to this lecture...&#10;0:05&#10;Today we will cover..."
+                            aria-label="Pasted transcript"
+                        ></textarea>
+                    </div>
                 </div>
 
                 <div class="landing__features">

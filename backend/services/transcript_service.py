@@ -165,6 +165,83 @@ def fetch_transcript(video_id: str) -> tuple[Optional[list[dict]], str]:
             return None, f"Failed to extract transcript: {error_msg}"
 
 
+# Timestamp at the start of a line: "1:02", "01:02:03", "[12:34]", "00:01:02,500"
+LINE_TIMESTAMP = re.compile(r"^\[?((?:\d{1,2}:)?\d{1,2}:\d{2})(?:[.,]\d+)?\]?\s*(.*)$")
+
+# Plain-text transcripts have no timestamps; estimate them at a typical speaking rate
+WORDS_PER_SECOND = 2.5
+
+
+def _timestamp_to_seconds(ts: str) -> float:
+    seconds = 0.0
+    for part in ts.split(":"):
+        seconds = seconds * 60 + int(part)
+    return seconds
+
+
+def parse_pasted_transcript(text: str) -> list[dict]:
+    """
+    Parse a transcript pasted by the user into segments.
+
+    Supports:
+        - YouTube "Show transcript" copy (timestamp on its own line, or before the text)
+        - SRT / WebVTT subtitle files
+        - Plain text with no timestamps (timestamps are estimated)
+
+    Returns:
+        List of {"text", "start", "duration"} segments
+    """
+    lines = [line.strip() for line in text.replace("\r\n", "\n").split("\n")]
+    is_subtitle_file = any("-->" in line for line in lines)
+
+    segments: list[dict] = []
+    current_start: Optional[float] = None
+    current_text: list[str] = []
+
+    def flush():
+        if current_start is not None and current_text:
+            segments.append({"text": " ".join(current_text), "start": current_start, "duration": 0.0})
+
+    for line in lines:
+        if not line or line.upper() == "WEBVTT":
+            continue
+        if is_subtitle_file and line.isdigit():
+            continue  # SRT cue number
+
+        # In subtitle files only the "start --> end" cue line carries a timestamp
+        if is_subtitle_file:
+            match = LINE_TIMESTAMP.match(line.split("-->")[0].strip()) if "-->" in line else None
+        else:
+            match = LINE_TIMESTAMP.match(line)
+        if match:
+            flush()
+            current_start = _timestamp_to_seconds(match.group(1))
+            current_text = [match.group(2)] if match.group(2) else []
+        elif current_start is not None:
+            current_text.append(line)
+
+    flush()
+
+    if segments:
+        # Duration = gap to the next segment
+        for seg, nxt in zip(segments, segments[1:]):
+            seg["duration"] = max(nxt["start"] - seg["start"], 0.0)
+        segments[-1]["duration"] = max(len(segments[-1]["text"].split()) / WORDS_PER_SECOND, 1.0)
+        logger.info(f"Parsed {len(segments)} timestamped segments from pasted transcript")
+        return segments
+
+    # No timestamps found: split into sentences and estimate timing
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", " ".join(lines)) if s.strip()]
+    elapsed = 0.0
+    for sentence in sentences:
+        duration = max(len(sentence.split()) / WORDS_PER_SECOND, 1.0)
+        segments.append({"text": sentence, "start": elapsed, "duration": duration})
+        elapsed += duration
+
+    logger.info(f"Parsed {len(segments)} segments (estimated timestamps) from pasted transcript")
+    return segments
+
+
 def clean_transcript(segments: list[dict]) -> list[dict]:
     """
     Clean transcript segments while preserving timestamps and meaningful content.

@@ -13,6 +13,10 @@ from typing import Optional
 class VideoProcessRequest(BaseModel):
     """Request to process a YouTube video."""
     url: str = Field(..., description="YouTube video URL", min_length=10)
+    transcript: Optional[str] = Field(
+        None,
+        description="Pasted transcript, used instead of fetching from YouTube",
+    )
 
 
 class QuestionRequest(BaseModel):

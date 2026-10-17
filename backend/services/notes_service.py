@@ -8,12 +8,9 @@ The notes are fundamentally different from the summary:
 - Notes: "What should I write down and study from this lecture?"
 """
 
-import json
-import os
 import logging
 from typing import Optional
 
-from backend.config import get_settings
 from backend.services import vector_store, llm_service
 from backend.utils.helpers import estimate_tokens
 
@@ -195,35 +192,14 @@ TRANSCRIPT:
 # Caching
 # =============================================================================
 
-def _get_cache_path(video_id: str) -> str:
-    """Get the cache file path for a video's notes."""
-    settings = get_settings()
-    cache_dir = os.path.join(settings.CACHE_DIR, video_id)
-    os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, "notes.json")
-
-
 def _load_cached_notes(video_id: str) -> Optional[str]:
-    """Load cached notes if available."""
-    path = _get_cache_path(video_id)
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("notes")
-        except Exception:
-            pass
-    return None
+    """Load cached notes from the video's record in the vector store."""
+    return vector_store.get_video_record(video_id).get("notes")
 
 
 def _save_notes_cache(video_id: str, notes: str) -> None:
-    """Save generated notes to cache."""
-    path = _get_cache_path(video_id)
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"video_id": video_id, "notes": notes}, f, ensure_ascii=False)
-    except Exception as e:
-        logger.warning(f"Failed to cache notes: {e}")
+    """Save generated notes to the video's record in the vector store."""
+    vector_store.update_video_record(video_id, notes=notes)
 
 
 # =============================================================================

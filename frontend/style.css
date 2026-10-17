@@ -236,6 +236,49 @@ a:hover { text-decoration: underline; }
     color: var(--text-4);
 }
 
+.paste-toggle {
+    display: block;
+    margin: 12px auto 0;
+    background: none;
+    border: none;
+    color: var(--text-3);
+    font-family: var(--font);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.paste-toggle:hover { color: var(--accent); }
+
+.paste-box {
+    display: none;
+    margin-top: 12px;
+    text-align: left;
+}
+
+.paste-box.show { display: block; }
+
+.paste-box__hint {
+    color: var(--text-3);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    margin-bottom: 8px;
+}
+
+.paste-box textarea {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    color: var(--text-1);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    padding: 12px 14px;
+    resize: vertical;
+    outline: none;
+}
+
+.paste-box textarea:focus { border-color: var(--accent-border); }
+
 .btn {
     display: inline-flex;
     align-items: center;

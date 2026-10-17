@@ -3,12 +3,9 @@ AI summary generation service.
 Uses hierarchical summarization for long transcripts to avoid context-window overflow.
 """
 
-import json
-import os
 import logging
 from typing import Optional
 
-from backend.config import get_settings
 from backend.services import vector_store, llm_service
 from backend.utils.helpers import seconds_to_timestamp, timestamp_to_youtube_url, estimate_tokens
 
@@ -127,35 +124,14 @@ TRANSCRIPT:
 # Caching
 # =============================================================================
 
-def _get_cache_path(video_id: str) -> str:
-    """Get the cache file path for a video's summary."""
-    settings = get_settings()
-    cache_dir = os.path.join(settings.CACHE_DIR, video_id)
-    os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, "summary.json")
-
-
 def _load_cached_summary(video_id: str) -> Optional[str]:
-    """Load a cached summary if available."""
-    path = _get_cache_path(video_id)
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("summary")
-        except Exception:
-            pass
-    return None
+    """Load cached summary from the video's record in the vector store."""
+    return vector_store.get_video_record(video_id).get("summary")
 
 
 def _save_summary_cache(video_id: str, summary: str) -> None:
-    """Save a generated summary to cache."""
-    path = _get_cache_path(video_id)
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"video_id": video_id, "summary": summary}, f, ensure_ascii=False)
-    except Exception as e:
-        logger.warning(f"Failed to cache summary: {e}")
+    """Save generated summary to the video's record in the vector store."""
+    vector_store.update_video_record(video_id, summary=summary)
 
 
 # =============================================================================

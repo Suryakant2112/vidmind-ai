@@ -33,26 +33,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["api"])
 
-# In-memory metadata store for processed videos
-# In production, this would be a database
-_video_metadata: dict[str, dict] = {}
-
-
 # =============================================================================
 # Health Check
 # =============================================================================
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check():
+def health_check():
     """Health check endpoint."""
     return HealthResponse(
         status="healthy",
         version="1.0.0",
         services={
             "api": "running",
-            "vector_store": "chromadb",
-            "embeddings": "sentence-transformers (local)",
-            "llm": "groq (external api)",
+            "vector_store": "qdrant",
+            "embeddings": "fastembed (local)",
+            "llm": "groq → gemini fallback chain",
         },
     )
 
@@ -62,12 +57,15 @@ async def health_check():
 # =============================================================================
 
 @router.post("/video/process", response_model=VideoProcessResponse)
-async def process_video(request: VideoProcessRequest):
+def process_video(request: VideoProcessRequest):
     """
     Process a YouTube video: extract transcript, chunk, embed, and store.
 
     This is the main entry point. After processing, the video is ready
     for summary generation, note generation, and Q&A.
+
+    If `transcript` is provided, it is used instead of fetching from YouTube
+    (YouTube often blocks transcript requests from cloud servers).
     """
     steps = []
     video_id = None
@@ -93,7 +91,7 @@ async def process_video(request: VideoProcessRequest):
             steps[-1].message = "Video already processed — loading existing data"
 
             # Return cached info
-            info = _video_metadata.get(video_id, {})
+            info = vector_store.get_video_record(video_id)
             return VideoProcessResponse(
                 success=True,
                 video_info=VideoInfo(
@@ -111,19 +109,32 @@ async def process_video(request: VideoProcessRequest):
         steps[-1].status = "done"
         steps[-1].message = "New video — processing required"
 
-        # Step 3: Extract transcript
-        steps.append(ProcessingStep(step="Extracting transcript", status="in_progress"))
-        segments, transcript_msg = transcript_service.fetch_transcript(video_id)
-        if segments is None:
-            steps[-1].status = "error"
-            steps[-1].message = transcript_msg
-            raise HTTPException(status_code=400, detail=transcript_msg)
+        # Step 3: Extract transcript (pasted, or fetched from YouTube)
+        settings = get_settings()
+        pasted = (request.transcript or "").strip()
+        if pasted:
+            steps.append(ProcessingStep(step="Reading pasted transcript", status="in_progress"))
+            if len(pasted) > settings.MAX_PASTED_TRANSCRIPT_CHARS:
+                raise HTTPException(status_code=400, detail="Pasted transcript is too long.")
+            segments = transcript_service.parse_pasted_transcript(pasted)
+            if not segments:
+                raise HTTPException(status_code=400, detail="Could not read any text from the pasted transcript.")
+        else:
+            steps.append(ProcessingStep(step="Extracting transcript", status="in_progress"))
+            segments, transcript_msg = transcript_service.fetch_transcript(video_id)
+            if segments is None:
+                steps[-1].status = "error"
+                steps[-1].message = transcript_msg
+                # The frontend uses this code to offer the paste-transcript box
+                raise HTTPException(
+                    status_code=422,
+                    detail={"code": "transcript_unavailable", "message": transcript_msg},
+                )
         steps[-1].status = "done"
         steps[-1].message = f"{len(segments)} segments extracted"
 
         # Step 4: Check duration limit
         duration = transcript_service.get_transcript_duration(segments)
-        settings = get_settings()
         max_duration = settings.MAX_VIDEO_DURATION_MINUTES * 60
         if duration > max_duration:
             msg = (
@@ -165,12 +176,14 @@ async def process_video(request: VideoProcessRequest):
         steps.append(ProcessingStep(step="Video ready", status="done", message="✓"))
 
         # Save metadata
-        _video_metadata[video_id] = {
-            "title": "",  # Could be fetched via YouTube Data API if needed
-            "duration_seconds": duration,
-            "transcript_segments": len(segments),
-            "chunk_count": len(chunks),
-        }
+        vector_store.update_video_record(
+            video_id,
+            title="",
+            duration_seconds=duration,
+            transcript_segments=len(segments),
+            chunk_count=len(chunks),
+            transcript_source="pasted" if pasted else "youtube",
+        )
 
         return VideoProcessResponse(
             success=True,
@@ -201,12 +214,12 @@ async def process_video(request: VideoProcessRequest):
 # =============================================================================
 
 @router.get("/video/{video_id}")
-async def get_video_info(video_id: str):
+def get_video_info(video_id: str):
     """Get metadata for a processed video."""
     if not vector_store.video_exists(video_id):
         raise HTTPException(status_code=404, detail="Video not found. Please process it first.")
 
-    info = _video_metadata.get(video_id, {})
+    info = vector_store.get_video_record(video_id)
     return VideoInfo(
         video_id=video_id,
         video_url=youtube_service.build_video_url(video_id),
@@ -223,7 +236,7 @@ async def get_video_info(video_id: str):
 # =============================================================================
 
 @router.get("/video/{video_id}/summary", response_model=SummaryResponse)
-async def get_summary(video_id: str):
+def get_summary(video_id: str):
     """
     Generate or retrieve an AI summary of the video.
     Uses hierarchical summarization for long transcripts.
@@ -248,7 +261,7 @@ async def get_summary(video_id: str):
 # =============================================================================
 
 @router.get("/video/{video_id}/notes", response_model=NotesResponse)
-async def get_notes(video_id: str):
+def get_notes(video_id: str):
     """
     Generate or retrieve detailed AI lecture notes.
     Uses hierarchical generation for long transcripts.
@@ -273,7 +286,7 @@ async def get_notes(video_id: str):
 # =============================================================================
 
 @router.post("/video/{video_id}/ask", response_model=AnswerResponse)
-async def ask_question(video_id: str, request: QuestionRequest):
+def ask_question(video_id: str, request: QuestionRequest):
     """
     Ask a question about the video using RAG.
 
